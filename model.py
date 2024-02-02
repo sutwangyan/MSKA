@@ -20,6 +20,8 @@ class SignLanguageModel(torch.nn.Module):
         elif self.task == 'S2T':
             self.recognition_weight = model_cfg.get('recognition_weight', 1)
             self.translation_weight = model_cfg.get('translation_weight', 1)
+            self.recognition_network = Recognition(cfg=model_cfg['RecognitionNetwork'], args=self.args,
+                                                   transform_cfg=cfg['data']['transform_cfg'])
             self.translation_network = TranslationNetwork()
             self.gloss_tokenizer = GlossTokenizer_S2G({'gloss2id_file':'data/gloss2ids_old.pkl'})
             self.text_tokenizer = self.translation_network.text_tokenizer

@@ -1,4 +1,3 @@
-
 # *torch
 from pickletools import optimize
 # from sched import scheduler
@@ -20,7 +19,7 @@ import os
 import time
 import argparse, json, datetime
 import numpy as np
-from collections import  defaultdict
+from collections import defaultdict
 import yaml
 import random
 import wandb
@@ -39,7 +38,7 @@ from timm.utils import NativeScaler
 # global definition
 from definition import *
 from optimizer import build_optimizer, build_scheduler
-from phoenix_cleanup import clean_phoenix_2014_trans
+from phoenix_cleanup import clean_phoenix_2014_trans, clean_phoenix_2014
 
 
 def get_args_parser():
@@ -87,7 +86,7 @@ def get_args_parser():
                         help='warmup learning rate (default: 1e-6)')
     parser.add_argument('--min-lr', type=float, default=1.0e-08, metavar='LR',
                         help='lower lr bound for cyclic schedulers that hit 0 (1e-5)')
-    
+
     parser.add_argument('--decay-epochs', type=float, default=30, metavar='N',
                         help='epoch interval to decay LR')
     parser.add_argument('--warmup-epochs', type=int, default=10, metavar='N',
@@ -98,8 +97,8 @@ def get_args_parser():
                         help='patience epochs for Plateau LR scheduler (default: 10')
     parser.add_argument('--decay-rate', '--dr', type=float, default=0.1, metavar='RATE',
                         help='LR decay rate (default: 0.1)')
-    
-     # * Baise params
+
+    # * Baise params
     parser.add_argument('--output_dir', default='out/vlp_v2',
                         help='path where to save, empty for no saving')
     parser.add_argument('--device', default='cuda',
@@ -120,17 +119,17 @@ def get_args_parser():
     # * data process params
     parser.add_argument('--input-size', default=224, type=int)
     parser.add_argument('--resize', default=256, type=int)
-    
+
     # * wandb params
     parser.add_argument("--log_all", action="store_true",
-        help="flag to log in all processes, otherwise only in rank0",
-    )
-    parser.add_argument("--entity", type=str, 
-        help="wandb entity",
-    )
+                        help="flag to log in all processes, otherwise only in rank0",
+                        )
+    parser.add_argument("--entity", type=str,
+                        help="wandb entity",
+                        )
     parser.add_argument("--project", type=str, default='VLP',
-        help="wandb project",
-    )
+                        help="wandb project",
+                        )
 
     # * Noise params
     parser.add_argument('--training-refurbish', default=True, type=bool)
@@ -143,13 +142,15 @@ def get_args_parser():
 
     return parser
 
+
 def init_ddp(local_rank):
     # 有了这一句之后，在转换device的时候直接使用 a=a.cuda()即可，否则要用a=a.cuda(local+rank)
     torch.cuda.set_device(local_rank)
     os.environ['RANK'] = str(local_rank)
     dist.init_process_group(backend='nccl', init_method='env://')
 
-def main(args,config):
+
+def main(args, config):
     utils.init_distributed_mode(args)
     print(args)
     device = torch.device(args.device)
@@ -161,43 +162,45 @@ def main(args,config):
     cudnn.benchmark = False
 
     print(f"Creating dataset:")
-    tokenizer = GlossTokenizer_S2G({'gloss2id_file':'data/gloss2ids_old.pkl'})
-
-    train_data = S2T_Dataset(path=config['data']['train_label_path'], tokenizer = tokenizer, config=config, args=args, phase='train', training_refurbish=True)
+    tokenizer = GlossTokenizer_S2G(config['gloss'])
+    train_data = S2T_Dataset(path=config['data']['train_label_path'], tokenizer=tokenizer, config=config, args=args,
+                             phase='train', training_refurbish=True)
     print(train_data)
     # torch.distributed.init_process_group(backend='nccl', init_method='tcp://127.0.0.11:3806', rank=0, world_size=1)
     # train_sampler = torch.utils.data.distributed.DistributedSampler(train_data, shuffle=True)
     train_dataloader = DataLoader(train_data,
-                                 batch_size=args.batch_size, 
-                                 num_workers=args.num_workers, 
-                                 collate_fn=train_data.collate_fn,
-                                 shuffle=True,
-                                 # sampler=train_sampler,
-                                 pin_memory=args.pin_mem,
-                                 drop_last=True)
+                                  batch_size=args.batch_size,
+                                  num_workers=args.num_workers,
+                                  collate_fn=train_data.collate_fn,
+                                  shuffle=True,
+                                  # sampler=train_sampler,
+                                  pin_memory=args.pin_mem,
+                                  drop_last=True)
 
-    dev_data = S2T_Dataset(path=config['data']['dev_label_path'], tokenizer=tokenizer, config=config, args=args, phase='val', training_refurbish=True)
+    dev_data = S2T_Dataset(path=config['data']['dev_label_path'], tokenizer=tokenizer, config=config, args=args,
+                           phase='val', training_refurbish=True)
     print(dev_data)
     # dev_sampler = torch.utils.data.distributed.DistributedSampler(dev_data,shuffle=False)
     dev_dataloader = DataLoader(dev_data,
-                                 batch_size=args.batch_size,
-                                 num_workers=args.num_workers, 
-                                 collate_fn=dev_data.collate_fn,
-                                 # sampler=dev_sampler,
-                                 pin_memory=args.pin_mem)
+                                batch_size=args.batch_size,
+                                num_workers=args.num_workers,
+                                collate_fn=dev_data.collate_fn,
+                                # sampler=dev_sampler,
+                                pin_memory=args.pin_mem)
 
-    test_data = S2T_Dataset(path=config['data']['test_label_path'], tokenizer=tokenizer, config=config, args=args, phase='test', training_refurbish=True)
+    test_data = S2T_Dataset(path=config['data']['test_label_path'], tokenizer=tokenizer, config=config, args=args,
+                            phase='test', training_refurbish=True)
     print(test_data)
     # test_sampler = torch.utils.data.distributed.DistributedSampler(test_data, shuffle=False)
     test_dataloader = DataLoader(test_data,
                                  batch_size=args.batch_size,
-                                 num_workers=args.num_workers, 
+                                 num_workers=args.num_workers,
                                  collate_fn=test_data.collate_fn,
-                                 #sampler=test_sampler,
+                                 # sampler=test_sampler,
                                  pin_memory=args.pin_mem)
 
     print(f"Creating model:")
-    model = SignLanguageModel(cfg=config,args=args)
+    model = SignLanguageModel(cfg=config, args=args)
     model.to(device)
     print(model)
 
@@ -224,10 +227,12 @@ def main(args,config):
     if args.eval:
         if not args.resume:
             logger.warning('Please specify the trained model: --resume /path/to/best_checkpoint.pth')
-        dev_stats = evaluate(args, dev_dataloader, model, tokenizer, config, args.start_epoch, UNK_IDX, SPECIAL_SYMBOLS, PAD_IDX, device)
+        dev_stats = evaluate(args, dev_dataloader, model, tokenizer, config, args.start_epoch, UNK_IDX, SPECIAL_SYMBOLS,
+                             PAD_IDX, device)
         print(f"Dev loss of the network on the {len(dev_dataloader)} test videos: {dev_stats['loss']:.3f}")
 
-        test_stats = evaluate(args, test_dataloader, model, tokenizer, config, args.start_epoch, UNK_IDX, SPECIAL_SYMBOLS, PAD_IDX, device)
+        test_stats = evaluate(args, test_dataloader, model, tokenizer, config, args.start_epoch, UNK_IDX,
+                              SPECIAL_SYMBOLS, PAD_IDX, device)
         print(f"Test loss of the network on the {len(test_dataloader)} test videos: {test_stats['loss']:.3f}")
         return
 
@@ -237,7 +242,8 @@ def main(args,config):
     bleu_4 = 0
     for epoch in range(args.start_epoch, args.epochs):
         scheduler.step()
-        train_stats = train_one_epoch(args, model, tokenizer, train_dataloader, optimizer, device, epoch, config, PAD_IDX, loss_scaler)
+        train_stats = train_one_epoch(args, config, model, tokenizer, train_dataloader, optimizer, device, epoch,
+                                      config, PAD_IDX, loss_scaler)
         if args.output_dir:
             checkpoint_paths = [output_dir / f'checkpoint.pth']
             for checkpoint_path in checkpoint_paths:
@@ -248,11 +254,12 @@ def main(args,config):
                     'epoch': epoch,
                 }, checkpoint_path)
 
-        test_stats = evaluate(args, dev_dataloader, model, tokenizer, epoch, beam_size=1, do_translation=config['do_translation'], do_recognition=config['do_recognition'] )
+        test_stats = evaluate(args, config, dev_dataloader, model, tokenizer, epoch, beam_size=1,
+                              do_translation=config['do_translation'], do_recognition=config['do_recognition'])
 
         if config['task'] == "S2T":
-            if bleu_4 < test_stats["bleu-4"]:
-                bleu_4 = test_stats["bleu-4"]
+            if bleu_4 < test_stats["bleu4"]:
+                bleu_4 = test_stats["bleu4"]
                 if args.output_dir:
                     checkpoint_paths = [output_dir / 'best_checkpoint.pth']
                     for checkpoint_path in checkpoint_paths:
@@ -280,25 +287,29 @@ def main(args,config):
                         }, checkpoint_path)
             print(f"* DEV wer {test_stats['wer']:.3f} Min DEV WER {min_loss}")
         if args.run:
-            args.run.log({'epoch':epoch+1,'training/train_loss':train_stats['loss'], 'dev/dev_loss':test_stats['loss'], 'dev/min_loss': min_loss})
+            args.run.log(
+                {'epoch': epoch + 1, 'training/train_loss': train_stats['loss'], 'dev/dev_loss': test_stats['loss'],
+                 'dev/min_loss': min_loss})
 
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                      **{f'test_{k}': v for k, v in test_stats.items()},
                      'epoch': epoch,
                      'n_parameters': n_parameters}
-        
+
         if args.output_dir and utils.is_main_process():
             with (output_dir / "log.txt").open("a") as f:
                 f.write(json.dumps(log_stats) + "\n")
-        
+
         # Last epoch
     test_on_last_epoch = True
     if test_on_last_epoch and args.output_dir:
-        checkpoint = torch.load(args.output_dir+'/best_checkpoint.pth', map_location='cpu')
+        checkpoint = torch.load(args.output_dir + '/best_checkpoint.pth', map_location='cpu')
         model.load_state_dict(checkpoint['model'], strict=True)
-        dev_stats = evaluate(args, dev_dataloader, model, tokenizer, epoch, beam_size=5, do_translation=config['do_translation'], do_recognition=config['do_recognition'])
+        dev_stats = evaluate(args, config, dev_dataloader, model, tokenizer, epoch, beam_size=5,
+                             do_translation=config['do_translation'], do_recognition=config['do_recognition'])
         print(f"Dev loss of the network on the {len(dev_dataloader)} test videos: {dev_stats['loss']:.3f}")
-        test_stats = evaluate(args, test_dataloader, model, tokenizer, epoch, beam_size=5, do_translation=config['do_translation'], do_recognition=config['do_recognition'])
+        test_stats = evaluate(args, config, test_dataloader, model, tokenizer, epoch, beam_size=5,
+                              do_translation=config['do_translation'], do_recognition=config['do_recognition'])
         print(f"Test loss of the network on the {len(test_dataloader)} test videos: {test_stats['loss']:.3f}")
         if config['do_translation']:
             with (output_dir / "log.txt").open("a") as f:
@@ -313,9 +324,9 @@ def main(args,config):
     print('Training time {}'.format(total_time_str))
 
 
-def train_one_epoch(args, model: torch.nn.Module, criterion,
+def train_one_epoch(args, config, model: torch.nn.Module, criterion,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, config, PAD_IDX, loss_scaler, max_norm: float = 0,
+                    device: torch.device, epoch: int, PAD_IDX, loss_scaler, max_norm: float = 0,
                     set_training_mode=True):
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -338,13 +349,14 @@ def train_one_epoch(args, model: torch.nn.Module, criterion,
         metric_logger.update(loss=loss_value)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
     if args.run:
-        args.run.log({'epoch':epoch+1,'epoch/train_loss': loss_value})
+        args.run.log({'epoch': epoch + 1, 'epoch/train_loss': loss_value})
     # gather the stats from all processes
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
-def evaluate(args, dev_dataloader, model, tokenizer, epoch, beam_size=1, do_translation=True, do_recognition=True):
+def evaluate(args, config, dev_dataloader, model, tokenizer, epoch, beam_size=1, do_translation=True,
+             do_recognition=True):
     model.eval()
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Test:'
@@ -360,8 +372,8 @@ def evaluate(args, dev_dataloader, model, tokenizer, epoch, beam_size=1, do_tran
                         continue
                     logits_name = k.replace('gloss_logits', '')
                     ctc_decode_output = model.recognition_network.decode(gloss_logits=gls_logits,
-                                                     beam_size=beam_size,
-                                                     input_lengths=output['input_lengths'])
+                                                                         beam_size=beam_size,
+                                                                         input_lengths=output['input_lengths'])
                     batch_pred_gls = tokenizer.convert_ids_to_tokens(ctc_decode_output)
                     for name, gls_hyp, gls_ref in zip(src_input['name'], batch_pred_gls, src_input['gloss']):
                         results[name][f'{logits_name}gls_hyp'] = \
@@ -372,9 +384,10 @@ def evaluate(args, dev_dataloader, model, tokenizer, epoch, beam_size=1, do_tran
             if do_translation:
                 generate_output = model.generate_txt(
                     transformer_inputs=output['transformer_inputs'],
-                    generate_cfg={'length_penalty': 1,'max_length': 100,'num_beams': 5})
-                #decoded_sequences
-                for name, txt_hyp, txt_ref in zip(src_input['name'], generate_output['decoded_sequences'], src_input['text']):
+                    generate_cfg={'length_penalty': 1, 'max_length': 100, 'num_beams': 5})
+                # decoded_sequences
+                for name, txt_hyp, txt_ref in zip(src_input['name'], generate_output['decoded_sequences'],
+                                                  src_input['text']):
                     results[name]['txt_hyp'], results[name]['txt_ref'] = txt_hyp, txt_ref
             metric_logger.update(loss=output['total_loss'].item())
         if do_recognition:
@@ -384,10 +397,14 @@ def evaluate(args, dev_dataloader, model, tokenizer, epoch, beam_size=1, do_tran
                 if not 'gls_hyp' in hyp_name:
                     continue
                 k = hyp_name.replace('gls_hyp', '')
-                gls_ref = [clean_phoenix_2014_trans(results[n]['gls_ref']) for n in results]
-                gls_hyp = [clean_phoenix_2014_trans(results[n][hyp_name]) for n in results]
+                if config['data']['dataset_name'].lower() == 'phoenix-2014t':
+                    gls_ref = [clean_phoenix_2014_trans(results[n]['gls_ref']) for n in results]
+                    gls_hyp = [clean_phoenix_2014_trans(results[n][hyp_name]) for n in results]
+                elif config['data']['dataset_name'].lower() == 'phoenix-2014':
+                    gls_ref = [clean_phoenix_2014(results[n]['gls_ref']) for n in results]
+                    gls_hyp = [clean_phoenix_2014(results[n][hyp_name]) for n in results]
                 wer_results = wer_list(hypotheses=gls_hyp, references=gls_ref)
-                evaluation_results[k+'wer_list'] = wer_results
+                evaluation_results[k + 'wer_list'] = wer_results
                 evaluation_results['wer'] = min(wer_results['wer'], evaluation_results['wer'])
             metric_logger.update(wer=evaluation_results['wer'])
 
@@ -409,11 +426,13 @@ def evaluate(args, dev_dataloader, model, tokenizer, epoch, beam_size=1, do_tran
             metric_logger.update(rouge=rouge_score)
 
     if args.run:
-        args.run.log({'epoch':epoch+1, 'epoch/dev_loss': output['recognition_loss'].item(),'wer':evaluation_results['wer']})
+        args.run.log(
+            {'epoch': epoch + 1, 'epoch/dev_loss': output['recognition_loss'].item(), 'wer': evaluation_results['wer']})
     print("* Averaged stats:", metric_logger)
     print('* DEV loss {losses.global_avg:.3f}'.format(losses=metric_logger.loss))
 
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+
 
 def setup_run(args, config):
     if args.log_all:
@@ -444,12 +463,13 @@ def setup_run(args, config):
             run = False
     return run
 
+
 if __name__ == '__main__':
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     parser = argparse.ArgumentParser('Visual-Language-Pretraining (VLP) V2 scripts', parents=[get_args_parser()])
     args = parser.parse_args()
-    with open(args.config, 'r+',encoding='utf-8') as f:
-        config = yaml.load(f,Loader=yaml.FullLoader)
+    with open(args.config, 'r+', encoding='utf-8') as f:
+        config = yaml.load(f, Loader=yaml.FullLoader)
     # wandb.init a run if logging, otherwise return None
     args.run = setup_run(args, config)
     if args.output_dir:

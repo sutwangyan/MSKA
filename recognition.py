@@ -89,26 +89,6 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:, :, :x.size(2)]
         return x
 
-class LearnedPositionalEmbedding(nn.Embedding):
-    """
-    This module learns positional embeddings up to a fixed maximum size.
-    """
-
-    def __init__(self, num_embeddings: int, embedding_dim: int):
-        # MBart is set up so that if padding_idx is specified then offset the embedding ids by 2
-        # and adjust num_embeddings appropriately. Other models don't have this hack
-        self.offset = 2
-        super().__init__(num_embeddings + self.offset, embedding_dim)
-
-    def forward(self, input_ids: torch.Tensor, past_key_values_length: int = 0):
-        """`input_ids' shape is expected to be [bsz x seqlen]."""
-
-        bsz, seq_len = input_ids.shape[:2]
-        positions = torch.arange(
-            past_key_values_length, past_key_values_length + seq_len, dtype=torch.long, device=self.weight.device
-        ).expand(bsz, -1)
-
-        return super().forward(positions + self.offset)
 
 class STAttentionBlock(nn.Module):
     def __init__(self, in_channels, out_channels, inter_channels, num_subset=2, num_node=27, num_frame=400,
@@ -126,16 +106,12 @@ class STAttentionBlock(nn.Module):
         self.use_pes = use_pes
         self.use_pet = use_pet
 
-        self.embed_positions = LearnedPositionalEmbedding(
-            num_frame,
-            num_node,
-        )
         pad = int((kernel_size - 1) / 2)
         self.use_spatial_att = use_spatial_att
         if use_spatial_att:
             atts = torch.zeros((1, num_subset, num_node, num_node))
             self.register_buffer('atts', atts)
-            # self.pes = PositionalEncoding(in_channels, num_node, num_frame, 'spatial')
+            self.pes = PositionalEncoding(in_channels, num_node, num_frame, 'spatial')
             self.ff_nets = nn.Sequential(
                 nn.Conv2d(out_channels, out_channels, 1, 1, padding=0, bias=True),
                 nn.BatchNorm2d(out_channels),
@@ -220,10 +196,7 @@ class STAttentionBlock(nn.Module):
         if self.use_spatial_att:
             attention = self.atts
             if self.use_pes:
-                y = rearrange(x, 'b c t l -> (b c) t l')
-                y = self.embed_positions(y)
-                y = rearrange(y, '(b c) t l -> b c t l',b=N)
-                # y = self.pes(x)
+                y = self.pes(x)
             else:
                 y = x
             if self.att_s:
@@ -435,7 +408,7 @@ class Recognition(nn.Module):
             self.visual_head_fuse = VisualHead(
                 cls_num=len(self.gloss_tokenizer), **new_cfg)
         elif self.input_type == 'feature':
-            self.visual_backbone_keypoint = DSTA(cfg=self.cfg['DSTA-Net'])
+            self.visual_backbone_keypoint = DSTA(cfg=self.cfg['DSTA-Net'],num_channel=3)
             self.rgb_visual_head = VisualHead(cls_num=len(self.gloss_tokenizer), **cfg['rgb_visual_head'])
             self.keypoint_visual_head = VisualHead(cls_num=len(self.gloss_tokenizer), **cfg['fuse_visual_head'])
             self.left_visual_head = VisualHead(cls_num=len(self.gloss_tokenizer), **cfg['left_visual_head'])
@@ -446,6 +419,13 @@ class Recognition(nn.Module):
                 cls_num=len(self.gloss_tokenizer), **new_cfg)
         else:
             raise ValueError
+        if 'pretrained_path' in self.cfg:
+            load_dict = torch.load(cfg['pretrained_path'],map_location='cpu')['model']
+            backbone_dict = {}
+            for k, v in load_dict.items():
+                backbone_dict[k.replace('recognition_network.','')] = v
+            self.load_state_dict(backbone_dict)
+
         self.recognition_loss_func = torch.nn.CTCLoss(
             blank=0,
             zero_infinity=True,
@@ -503,11 +483,9 @@ class Recognition(nn.Module):
                             }
             head_outputs['ensemble_last_gloss_probabilities_log'] = head_outputs['ensemble_last_gloss_logits'].log_softmax(2)
             head_outputs['ensemble_last_gloss_probabilities'] = head_outputs['ensemble_last_gloss_logits'].softmax(2)
-
+            head_outputs['gloss_feature'] = fuse_head['gloss_feature']
         elif self.input_type == 'video':
             # TODO add src_input['feature'] and feature_mask
-            # for name, param in self.visual_backbone.backbone.named_parameters():
-            #     print(name, ':', param.requires_grad)
             s3d_outputs = self.visual_backbone(sgn_videos=src_input['videos'].cuda(), sgn_lengths=src_input['src_length'].cuda())
             head_outputs_rgb = self.rgb_visual_head(
                                 x=s3d_outputs['sgn'],
@@ -601,7 +579,7 @@ class Recognition(nn.Module):
                    'input_lengths':src_input['new_src_lengths']}
 
         # TODO
-        if self.input_type == 'video':
+        if self.input_type == 'video' :
             for k in ['keypoint', 'rgb', 'fuse', 'left', 'right']:
                 outputs[f'recognition_loss_{k}'] = self.compute_recognition_loss(
                     gloss_labels=src_input['gloss_input']['gloss_labels'].cuda(),
@@ -626,13 +604,14 @@ class Recognition(nn.Module):
                     gloss_probabilities_log=head_outputs[f'{k}_gloss_probabilities_log'],
                     input_lengths=src_input['new_src_lengths'].cuda())
             outputs['recognition_loss'] = outputs['recognition_loss_left'] + outputs['recognition_loss_right'] + outputs['recognition_loss_fuse']
-            loss_func = torch.nn.KLDivLoss(reduction="batchmean")
-            for student in ['left', 'right', 'fuse']:
-                teacher_prob = outputs['ensemble_last_gloss_probabilities']
-                teacher_prob = teacher_prob.detach()
-                student_log_prob = outputs[f'{student}_gloss_probabilities_log']
-                outputs[f'{student}_distill_loss'] = loss_func(input=student_log_prob, target=teacher_prob)
-                outputs['recognition_loss'] += outputs[f'{student}_distill_loss']
+            if 'cross_distillation' in self.cfg:
+                loss_func = torch.nn.KLDivLoss(reduction="batchmean")
+                for student in ['left', 'right', 'fuse']:
+                    teacher_prob = outputs['ensemble_last_gloss_probabilities']
+                    teacher_prob = teacher_prob.detach()
+                    student_log_prob = outputs[f'{student}_gloss_probabilities_log']
+                    outputs[f'{student}_distill_loss'] = loss_func(input=student_log_prob, target=teacher_prob)
+                    outputs['recognition_loss'] += outputs[f'{student}_distill_loss']
         elif self.input_type == 'feature':
             for k in ['keypoint', 'rgb', 'fuse', 'left', 'right']:
                 outputs[f'recognition_loss_{k}'] = self.compute_recognition_loss(
@@ -651,7 +630,6 @@ class Recognition(nn.Module):
                 student_log_prob = outputs[f'{student}_gloss_probabilities_log']
                 outputs[f'{student}_distill_loss'] = loss_func(input=student_log_prob, target=teacher_prob)
                 outputs['recognition_loss'] += outputs[f'{student}_distill_loss']
-
         return outputs
 
 
