@@ -1,67 +1,14 @@
-from ctypes import util
+import random
 
 import torchvision
-from cv2 import IMREAD_GRAYSCALE
 import torch
 import utils as utils
 import torch.utils.data.dataset as Dataset
-from torch.nn.utils.rnn import pad_sequence
-import math
-from torchvision import transforms
 from PIL import Image
-import cv2
 import os
-import random
-import numpy as np
-import lmdb
-import io
-import time
-
 from Tokenizer import GlossTokenizer_S2G, TextTokenizer
-from augmentation import *
-from loguru import logger
+import numpy as np
 
-# global definition
-from definition import *
-
-
-class Normaliztion(object):
-    """
-        same as mxnet, normalize into [-1, 1]
-        image = (image - 127.5)/128
-    """
-
-    def __call__(self, Image):
-        if isinstance(Image, PIL.Image.Image):
-            Image = np.asarray(Image, dtype=np.uint8)
-        new_video_x = (Image - 127.5) / 128
-        return new_video_x
-
-
-class SomeOf(object):
-    """
-    Selects one augmentation from a list.
-    Args:
-        transforms (list of "Augmentor" objects): The list of augmentations to compose.
-    """
-
-    def __init__(self, transforms1, transforms2):
-        self.transforms1 = transforms1
-        self.transforms2 = transforms2
-
-    def __call__(self, clip):
-        select = random.choice([0, 1, 2])
-        if select == 0:
-            return clip
-        elif select == 1:
-            if random.random() > 0.5:
-                return self.transforms1(clip)
-            else:
-                return self.transforms2(clip)
-        else:
-            clip = self.transforms1(clip)
-            clip = self.transforms2(clip)
-            return clip
 
 
 class S2T_Dataset(Dataset.Dataset):
@@ -70,9 +17,11 @@ class S2T_Dataset(Dataset.Dataset):
         self.args = args
         self.training_refurbish = training_refurbish
         self.clip_len = 400
-        if phase == 'train' and 'feature' not in self.config['data']['input_streams']:
+        if phase == 'train':
             self.tmin, self.tmax = 0.5, 1.5
         else:
+            self.tmin, self.tmax = 1, 1
+        if 'feature' in self.config['data']['input_data']:
             self.tmin, self.tmax = 1, 1
         self.transform_cfg = config['data']['transform_cfg']
         self.raw_data = utils.load_dataset_file(path)
@@ -93,17 +42,21 @@ class S2T_Dataset(Dataset.Dataset):
         text = None
         if self.config['task'] != 'S2G':
             text = sample['text']
-        keypoint = sample['keypoint'].permute(2, 0, 1)
+        keypoint = None
+        if 'keypoint' in self.config['data']['input_streams']:
+            keypoint = sample['keypoint'].permute(2, 0, 1).to(torch.float32)
         name_sample = sample['name']
         image_list = None
         if 'video' in self.config['data']['input_streams']:
             folder_path = self.config['data']['img_path'] + name_sample
             image_list = [Image.open(os.path.join(folder_path, filename)).convert('RGB')
                           for filename in os.listdir(folder_path)]
-        feature = None
-        if 'feature' in self.config['data']['input_streams']:
-            feature = sample['feature']
-        return name_sample, keypoint, gloss, text, image_list, length, feature
+        rgb_feature, keypoint_feature = None, None
+        if 'keypoint_feature' in self.config['data']['input_streams']:
+            keypoint_feature = sample['feature']
+        if 'rgb_feature' in self.config['data']['input_streams']:
+            rgb_feature = sample['rgb']
+        return name_sample, keypoint, gloss, text, image_list, length, rgb_feature, keypoint_feature
 
     def pil_list_to_tensor(self, pil_list, int2float=True):
         func = torchvision.transforms.PILToTensor()
@@ -171,13 +124,14 @@ class S2T_Dataset(Dataset.Dataset):
                 sgn_heatmaps[:, :2, :, :] = self.random_move(
                     sgn_heatmaps[:, :2, :, :].permute(0, 2, 3, 1).numpy()).permute(0, 3, 1, 2)
             else:
-                # TODO keypoint augment
-                sgn_heatmaps[:, 0, :, :] /= 210
-                sgn_heatmaps[:, 1, :, :] = 260 - sgn_heatmaps[:, 1, :, :]
-                sgn_heatmaps[:, 1, :, :] /= 260
-                sgn_heatmaps[:, :2, :, :] = (sgn_heatmaps[:, :2, :, :] - 0.5) / 0.5
-                sgn_heatmaps[:, :2, :, :] = self.random_move(
-                    sgn_heatmaps[:, :2, :, :].permute(0, 2, 3, 1).numpy()).permute(0, 3, 1, 2)
+                if sgn_heatmaps != None:
+                    # TODO keypoint augment
+                    sgn_heatmaps[:, 0, :, :] /= 210
+                    sgn_heatmaps[:, 1, :, :] = 260 - sgn_heatmaps[:, 1, :, :]
+                    sgn_heatmaps[:, 1, :, :] /= 260
+                    sgn_heatmaps[:, :2, :, :] = (sgn_heatmaps[:, :2, :, :] - 0.5) / 0.5
+                    sgn_heatmaps[:, :2, :, :] = self.random_move(
+                        sgn_heatmaps[:, :2, :, :].permute(0, 2, 3, 1).numpy()).permute(0, 3, 1, 2)
         else:
             if sgn_videos != None:
                 spatial_ops = []
@@ -192,10 +146,11 @@ class S2T_Dataset(Dataset.Dataset):
                 sgn_heatmaps[:, 1, :, :] /= 260
                 sgn_heatmaps[:, :2, :, :] = (sgn_heatmaps[:, :2, :, :] - 0.5) / 0.5
             else:
-                sgn_heatmaps[:, 0, :, :] /= 210
-                sgn_heatmaps[:, 1, :, :] = 260 - sgn_heatmaps[:, 1, :, :]
-                sgn_heatmaps[:, 1, :, :] /= 260
-                sgn_heatmaps[:, :2, :, :] = (sgn_heatmaps[:, :2, :, :] - 0.5) / 0.5
+                if sgn_heatmaps != None:
+                    sgn_heatmaps[:, 0, :, :] /= 210
+                    sgn_heatmaps[:, 1, :, :] = 260 - sgn_heatmaps[:, 1, :, :]
+                    sgn_heatmaps[:, 1, :, :] /= 260
+                    sgn_heatmaps[:, :2, :, :] = (sgn_heatmaps[:, :2, :, :] - 0.5) / 0.5
 
         # TODO video and keypoint use same normalization
         if sgn_videos != None:
@@ -205,21 +160,25 @@ class S2T_Dataset(Dataset.Dataset):
         return sgn_videos, sgn_heatmaps
 
     def collate_fn(self, batch):
-        tgt_batch, keypoint_batch, src_length_batch, name_batch, text_batch, img_batch, feature_batch = [], [], [], [], [], [], []
-        for name_sample, keypoint_sample, tgt_sample, text, img, length, feature in batch:
+        tgt_batch, keypoint_batch, src_length_batch, name_batch, text_batch, img_batch, rgb_feature_batch, keypoint_feature_batch = [], [], [], [], [], [], [], []
+        for name_sample, keypoint_sample, tgt_sample, text, img, length, rgb_feature, keypoint_feature in batch:
             # TODO add get_selected_index return index and valid len
             index, valid_len = self.get_selected_index(length)
             if img is not None:
                 img_batch.append([img[i] for i in index])
-            keypoint_batch.append(torch.stack([keypoint_sample[:, i, :] for i in index], dim=1))
+            if keypoint_sample is not None:
+                keypoint_batch.append(torch.stack([keypoint_sample[:, i, :] for i in index], dim=1))
             src_length_batch.append(valid_len)
             name_batch.append(name_sample)
             tgt_batch.append(tgt_sample)
             text_batch.append(text)
-            feature_batch.append(feature)
+            if rgb_feature is not None:
+                rgb_feature_batch.append(rgb_feature)
+            if keypoint_feature is not None:
+                keypoint_feature_batch.append(keypoint_feature)
 
         max_length = max(src_length_batch)
-        padded_sgn_videos, padded_sgn_keypoints, padded_sgn_feature = [], [], []
+        padded_sgn_videos, padded_sgn_keypoints, rgb_feature, keypoint_feature = [], [], [], []
         for video, len_ in zip(img_batch, src_length_batch):
             video = self.pil_list_to_tensor(video, int2float=True)
             if len_ < max_length:
@@ -242,23 +201,48 @@ class S2T_Dataset(Dataset.Dataset):
         videos = None
         if 'video' in self.config['data']['input_streams']:
             videos = torch.stack(padded_sgn_videos, dim=0)
-        keypoints = torch.stack(padded_sgn_keypoints, dim=0)
-        if 'feature' in self.config['data']['input_streams']:
-            feature_lengths = [f.shape[0] for f in feature_batch]
+        # TODO judge
+        keypoints = None
+        if 'keypoint' in self.config['data']['input_streams']:
+            keypoints = torch.stack(padded_sgn_keypoints, dim=0)
+
+        if 'keypoint_feature' in self.config['data']['input_streams']:
+            feature_lengths = [f.shape[0] for f in keypoint_feature_batch]
             max_feature_len = max(feature_lengths)
-            for feature, len_ in zip(feature_batch, feature_lengths):
+            keypoint_feature = []
+            for k, len_ in zip(keypoint_feature_batch, feature_lengths):
                 if len_ < max_feature_len:
-                    padding = torch.zeros([max_feature_len - feature.shape[0], feature.shape[1]], dtype=feature.dtype,
-                                          device=feature.device)
-                    padded_feature = torch.cat([feature, padding], dim=0)
-                    padded_sgn_feature.append(padded_feature)
+                    k_padding = torch.zeros([max_feature_len - k.shape[0], k.shape[1]], dtype=k.dtype, device=k.device)
+                    padded_k_feature = torch.cat([k, k_padding], dim=0)
+                    keypoint_feature.append(padded_k_feature)
                 else:
-                    padded_sgn_feature.append(feature)
-            feature_batch = torch.stack(padded_sgn_feature, dim=0)
+                    keypoint_feature.append(k)
+            keypoint_feature_batch = torch.stack(keypoint_feature, dim=0)
+
+        if 'rgb_feature' in self.config['data']['input_streams']:
+            feature_lengths = [f.shape[0] for f in rgb_feature_batch]
+            max_feature_len = max(feature_lengths)
+            rgb_feature = []
+            for rgb, len_ in zip(rgb_feature_batch, feature_lengths):
+                if len_ < max_feature_len:
+                    rgb_padding = torch.zeros([max_feature_len - rgb.shape[0], rgb.shape[1]], dtype=rgb.dtype,
+                                              device=rgb.device)
+                    padded_rgb_feature = torch.cat([rgb, rgb_padding], dim=0)
+                    rgb_feature.append(padded_rgb_feature)
+                else:
+                    rgb_feature.append(rgb)
+            rgb_feature_batch = torch.stack(rgb_feature, dim=0)
+
         # TODO videos and keypoint augment
         videos, keypoints = self.augment_preprocess_inputs(self.phase, videos, keypoints)
         src_length_batch = torch.tensor(src_length_batch)
         new_src_lengths = (((src_length_batch - 1) / 2) + 1).long()
+        max_len = max(new_src_lengths)
+        mask = torch.zeros(new_src_lengths.shape[0], 1, max_len)
+        for i in range(new_src_lengths.shape[0]):
+            mask[i, :, :new_src_lengths[i]] = 1
+        pre_mask = mask.to(torch.bool)
+        pre_new_src_lengths = new_src_lengths
         new_src_lengths = (((new_src_lengths - 1) / 2) + 1).long()
         gloss_input = self.tokenizer(tgt_batch)
         max_len = max(new_src_lengths)
@@ -279,13 +263,16 @@ class S2T_Dataset(Dataset.Dataset):
         # keypoint_batch = torch.cat(keypoint_batch, 0)
         # feature = torch.cat(feature_batch, 0)
         src_input['name'] = name_batch
-        src_input['keypoint'] = keypoints.to(torch.float32)
+        src_input['keypoint'] = keypoints
         if videos is not None:
             src_input['videos'] = videos
         src_input['gloss'] = tgt_batch
         src_input['mask'] = mask
-        src_input['feature'] = feature_batch
+        src_input['pre_mask'] = pre_mask
+        src_input['rgb'] = rgb_feature_batch
+        src_input['feature'] = keypoint_feature_batch
         src_input['new_src_lengths'] = new_src_lengths
+        src_input['pre_new_src_lengths'] = pre_new_src_lengths
         src_input['gloss_input'] = gloss_input
         src_input['src_length'] = src_length_batch
         # src_input['new_src_length_batch'] = new_src_lengths

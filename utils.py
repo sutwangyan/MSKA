@@ -42,9 +42,6 @@ import matplotlib.pyplot as plt  # For graphics
 import seaborn as sns
 from torchvision.utils import save_image, make_grid
 
-# global definition
-from definition import *
-
 
 def is_main_process():
     return 'WORLD_SIZE' not in os.environ or os.environ['WORLD_SIZE']=='1' or os.environ['LOCAL_RANK']=='0'
