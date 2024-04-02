@@ -64,13 +64,13 @@ def get_args_parser():
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                         help='start epoch')
     parser.add_argument('--eval', action='store_true', help='Perform evaluation only')
-    parser.add_argument('--num_workers', default=0, type=int)
+    parser.add_argument('--num_workers', default=8, type=int)
     parser.add_argument('--pin-mem', action='store_true',
                         help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
     parser.add_argument('--no-pin-mem', action='store_false', dest='pin_mem',
                         help='')
     parser.set_defaults(pin_mem=True)
-    parser.add_argument('--config', type=str, default='./configs/SingleStream/phoenix-2014t_s2g.yaml')
+    parser.add_argument('--config', type=str, default='./configs/phoenix-2014t_s2g.yaml')
 
     # * wandb params
     parser.add_argument("--log_all", action="store_true",

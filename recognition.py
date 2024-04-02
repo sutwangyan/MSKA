@@ -193,7 +193,7 @@ class STAttentionBlock(nn.Module):
 
 class DSTA(nn.Module):
     def __init__(self, num_class=1094, num_point=52, num_frame=400,
-                 num_subset=2, dropout=0.1,
+                 num_subset=6, dropout=0.1,
                  cfg=None,
                  args=None,
                  num_person=1,
