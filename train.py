@@ -1,21 +1,10 @@
-import pickle
-# *torch
-from pickletools import optimize
-# from sched import scheduler
 import torch
 import torch.backends.cudnn as cudnn
-from torch.cuda.amp import GradScaler
-
 from torch.utils.data import DataLoader
-
 from Tokenizer import GlossTokenizer_S2G
 from model import SignLanguageModel
-# *user-defined
-
 import utils as utils
 from datasets import S2T_Dataset
-
-# *basic
 import os
 import time
 import argparse, json, datetime
@@ -24,17 +13,15 @@ from collections import defaultdict
 import yaml
 import random
 import wandb
-import copy
 from pathlib import Path
 import math
 import sys
-from typing import Iterable, Optional
+from typing import Iterable
 from loguru import logger
 
 # *metric
 from metrics import wer_list, bleu, rouge
 import torch.distributed as dist
-from timm.utils import NativeScaler
 
 # global definition
 from optimizer import build_optimizer, build_scheduler
@@ -68,7 +55,7 @@ def get_args_parser():
     parser.add_argument('--no-pin-mem', action='store_false', dest='pin_mem',
                         help='')
     parser.set_defaults(pin_mem=True)
-    parser.add_argument('--config', type=str, default='./configs/csl-daily_s2t.yaml')
+    parser.add_argument('--config', type=str, default='configs/csl-daily_s2t.yaml')
 
     # * wandb params
     parser.add_argument("--log_all", action="store_true",
