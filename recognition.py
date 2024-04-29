@@ -29,20 +29,6 @@ def ctc_decode_func(tf_gloss_logits, input_lengths, beam_size):
         )
     return decoded_gloss_sequences
 
-def conv_init(conv):
-    nn.init.kaiming_normal_(conv.weight, mode='fan_out')
-    # nn.init.constant_(conv.bias, 0)
-
-
-def bn_init(bn, scale):
-    nn.init.constant_(bn.weight, scale)
-    nn.init.constant_(bn.bias, 0)
-
-
-def fc_init(fc):
-    nn.init.xavier_normal_(fc.weight)
-    nn.init.constant_(fc.bias, 0)
-
 
 class PositionalEncoding(nn.Module):
 
@@ -67,9 +53,6 @@ class PositionalEncoding(nn.Module):
                     pos_list.append(j_id)
 
         position = torch.from_numpy(np.array(pos_list)).unsqueeze(1).float()
-        # pe = position/position.max()*2 -1
-        # pe = pe.view(time_len, joint_num).unsqueeze(0).unsqueeze(0)
-        # Compute the positional encodings once in log space.
         pe = torch.zeros(self.time_len * self.joint_num, channel)
 
         div_term = torch.exp(torch.arange(0, channel, 2).float() *
@@ -192,14 +175,13 @@ class STAttentionBlock(nn.Module):
 
 
 class DSTA(nn.Module):
-    def __init__(self, num_class=1094, num_point=52, num_frame=400,
+    def __init__(self, num_frame=400,
                  num_subset=6, dropout=0.1,
                  cfg=None,
                  args=None,
-                 num_person=1,
                  num_channel=2, glo_reg_s=True, att_s=True, glo_reg_t=False, att_t=False,
-                 use_temporal_att=False, use_spatial_att=True, attentiondrop=0.1, dropout2d=0.1, use_pet=False,
-                 use_pes=True, mode='SLR', pretrain=True):
+                 use_temporal_att=False, use_spatial_att=True, attentiondrop=0.1, use_pet=False,
+                 use_pes=True, mode='SLR'):
         super(DSTA, self).__init__()
         self.mode = mode
         self.cfg = cfg
@@ -271,7 +253,6 @@ class DSTA(nn.Module):
                                  t_kernel=t_kernel, num_frame=num_frame,
                                  **param))
             num_frame = int(num_frame / stride + 0.5)
-        # self.fc = nn.Linear(self.out_channels, num_class)
         self.drop_out = nn.Dropout(dropout)
 
 
@@ -300,14 +281,13 @@ class DSTA(nn.Module):
         left = left.mean(3)
         right = right.mean(3)
         output = torch.cat([left, face, right, body], dim=-1)
-        # TODO add face mouth keypoint index
         left_output = torch.cat([left, face], dim=-1)
         right_output = torch.cat([right,  face], dim=-1)
         return output, left_output, right_output, body
 
 
 class Recognition(nn.Module):
-    def __init__(self, cfg, args, transform_cfg, input_streams=None):
+    def __init__(self, cfg, args, input_streams=None):
         super(Recognition, self).__init__()
         self.cfg = cfg
         self.args = args
@@ -316,7 +296,6 @@ class Recognition(nn.Module):
         self.input_streams = input_streams
         self.fuse_method = cfg.get('fuse_method', 'empty')
         self.heatmap_cfg = cfg.get('heatmap_cfg', {})
-        self.transform_cfg = transform_cfg
         if self.input_type == 'keypoint':
             self.visual_backbone = None
             self.rgb_visual_head = None
@@ -325,15 +304,6 @@ class Recognition(nn.Module):
             self.body_visual_head = VisualHead(cls_num=len(self.gloss_tokenizer), **cfg['body_visual_head'])
             self.left_visual_head = VisualHead(cls_num=len(self.gloss_tokenizer), **cfg['left_visual_head'])
             self.right_visual_head = VisualHead(cls_num=len(self.gloss_tokenizer), **cfg['right_visual_head'])
-        elif self.input_type == 'feature':
-            self.keypoint_visual_head = VisualHead(cls_num=len(self.gloss_tokenizer), **cfg['fuse_visual_head'])
-        elif self.input_type == 'two_stream':
-            self.rgb_visual_head = VisualHead(cls_num=len(self.gloss_tokenizer), **cfg['rgb_visual_head'])
-            self.keypoint_visual_head = VisualHead(cls_num=len(self.gloss_tokenizer), **cfg['keypoint_visual_head'])
-            new_cfg = deepcopy(cfg['keypoint_visual_head'])
-            new_cfg['input_size'] = 832 + 1024
-            self.fuse_visual_head = VisualHead(
-                cls_num=len(self.gloss_tokenizer), **new_cfg)
         else:
             raise ValueError
         if 'pretrained_path' in self.cfg:
@@ -407,88 +377,27 @@ class Recognition(nn.Module):
 
             head_outputs['ensemble_last_gloss_probabilities_log'] = head_outputs['ensemble_last_gloss_logits'].log_softmax(2)
             head_outputs['ensemble_last_gloss_probabilities'] = head_outputs['ensemble_last_gloss_logits'].softmax(2)
-            head_outputs['gloss_feature'] = fuse_head['gloss_feature']
-        elif self.input_type == 'feature':
-            head_outputs = self.keypoint_visual_head(
-                x=src_input['feature'].cuda(),
-                mask=src_input['mask'].cuda(),
-                valid_len_in=src_input['new_src_lengths'])
-        elif self.input_type == 'two_stream':
-            head_outputs_keypoint = self.keypoint_visual_head(
-                x=src_input['feature'].cuda(),
-                mask=src_input['mask'].cuda(),
-                valid_len_in=src_input['new_src_lengths'])
-            head_outputs_rgb = self.rgb_visual_head(
-                x=src_input['rgb'].cuda(),
-                mask=src_input['mask'].cuda(),
-                valid_len_in=src_input['new_src_lengths'])
-            fuse = torch.cat([src_input['feature'],src_input['rgb']],dim=-1)
-            head_outputs_fuse = self.fuse_visual_head(
-                x=fuse.cuda(),
-                mask=src_input['mask'].cuda(),
-                valid_len_in=src_input['new_src_lengths'])
-            head_outputs = {
-                'rgb_gloss_logits': head_outputs_rgb['gloss_logits'],
-                'keypoint_gloss_logits': head_outputs_keypoint['gloss_logits'],
-                'fuse_gloss_logits': head_outputs_fuse['gloss_logits'],
-                'rgb_gloss_probabilities_log': head_outputs_rgb['gloss_probabilities_log'],
-                'keypoint_gloss_probabilities_log': head_outputs_keypoint['gloss_probabilities_log'],
-                'fuse_gloss_probabilities_log': head_outputs_fuse['gloss_probabilities_log'],
-                'gloss_feature': head_outputs_fuse['gloss_feature']}
-
+            self.cfg['gloss_feature_ensemble'] = self.cfg.get('gloss_feature_ensemble', 'gloss_feature')
+            head_outputs['gloss_feature'] = fuse_head[self.cfg['gloss_feature_ensemble']]
         else:
             raise ValueError
         outputs = {**head_outputs,
                    'input_lengths':src_input['new_src_lengths']}
 
-        # TODO
-        if self.input_type == 'video':
-            for k in ['keypoint', 'rgb', 'fuse', 'left', 'right','body']:
-                outputs[f'recognition_loss_{k}'] = self.compute_recognition_loss(
-                    gloss_labels=src_input['gloss_input']['gloss_labels'].cuda(),
-                    gloss_lengths=src_input['gloss_input']['gls_lengths'].cuda(),
-                    gloss_probabilities_log=head_outputs[f'{k}_gloss_probabilities_log'],
-                    input_lengths=src_input['new_src_lengths'].cuda())
-            outputs['recognition_loss'] = outputs['recognition_loss_keypoint'] + outputs['recognition_loss_rgb'] + outputs['recognition_loss_fuse'] + \
-                                            outputs['recognition_loss_left'] + outputs['recognition_loss_right'] + outputs['recognition_loss_body']
-            outputs['gloss_feature'] = head_outputs_fuse['gloss_feature']
+        for k in ['left', 'right', 'fuse', 'body']:
+            outputs[f'recognition_loss_{k}'] = self.compute_recognition_loss(
+                gloss_labels=src_input['gloss_input']['gloss_labels'].cuda(),
+                gloss_lengths=src_input['gloss_input']['gls_lengths'].cuda(),
+                gloss_probabilities_log=head_outputs[f'{k}_gloss_probabilities_log'],
+                input_lengths=src_input['new_src_lengths'].cuda())
+        outputs['recognition_loss'] = outputs['recognition_loss_left'] + outputs['recognition_loss_right'] + \
+                                      outputs['recognition_loss_fuse'] + outputs['recognition_loss_body']
+        if 'cross_distillation' in self.cfg:
             loss_func = torch.nn.KLDivLoss(reduction="batchmean")
-            for student in ['keypoint', 'rgb', 'fuse','left','right','body']:
+            for student in ['left', 'right', 'fuse', 'body']:
                 teacher_prob = outputs['ensemble_last_gloss_probabilities']
                 teacher_prob = teacher_prob.detach()
                 student_log_prob = outputs[f'{student}_gloss_probabilities_log']
                 outputs[f'{student}_distill_loss'] = loss_func(input=student_log_prob, target=teacher_prob)
                 outputs['recognition_loss'] += outputs[f'{student}_distill_loss']
-        elif self.input_type == 'keypoint':
-            for k in ['left', 'right', 'fuse', 'body']:
-                outputs[f'recognition_loss_{k}'] = self.compute_recognition_loss(
-                    gloss_labels=src_input['gloss_input']['gloss_labels'].cuda(),
-                    gloss_lengths=src_input['gloss_input']['gls_lengths'].cuda(),
-                    gloss_probabilities_log=head_outputs[f'{k}_gloss_probabilities_log'],
-                    input_lengths=src_input['new_src_lengths'].cuda())
-            outputs['recognition_loss'] = outputs['recognition_loss_left'] + outputs['recognition_loss_right'] + \
-                                          outputs['recognition_loss_fuse'] + outputs['recognition_loss_body']
-            if 'cross_distillation' in self.cfg:
-                loss_func = torch.nn.KLDivLoss(reduction="batchmean")
-                for student in ['left', 'right', 'fuse', 'body']:
-                    teacher_prob = outputs['ensemble_last_gloss_probabilities']
-                    teacher_prob = teacher_prob.detach()
-                    student_log_prob = outputs[f'{student}_gloss_probabilities_log']
-                    outputs[f'{student}_distill_loss'] = loss_func(input=student_log_prob, target=teacher_prob)
-                    outputs['recognition_loss'] += outputs[f'{student}_distill_loss']
-        elif self.input_type == 'feature':
-            outputs['recognition_loss'] = self.compute_recognition_loss(
-                gloss_labels=src_input['gloss_input']['gloss_labels'].cuda(),
-                gloss_lengths=src_input['gloss_input']['gls_lengths'].cuda(),
-                gloss_probabilities_log=head_outputs['gloss_probabilities_log'],
-                input_lengths=src_input['new_src_lengths'].cuda())
-        elif self.input_type == 'two_stream':
-            for k in ['rgb', 'keypoint', 'fuse']:
-                outputs[f'recognition_loss_{k}'] = self.compute_recognition_loss(
-                    gloss_labels=src_input['gloss_input']['gloss_labels'].cuda(),
-                    gloss_lengths=src_input['gloss_input']['gls_lengths'].cuda(),
-                    gloss_probabilities_log=head_outputs[f'{k}_gloss_probabilities_log'],
-                    input_lengths=src_input['new_src_lengths'].cuda())
-            outputs['recognition_loss'] = outputs['recognition_loss_rgb'] + outputs['recognition_loss_keypoint'] + \
-                                          outputs['recognition_loss_fuse']
         return outputs

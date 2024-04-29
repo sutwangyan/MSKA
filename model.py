@@ -15,19 +15,25 @@ class SignLanguageModel(torch.nn.Module):
         self.frozen_modules = []
         if self.task == 'S2G':
             self.text_tokenizer = None
-            self.recognition_network = Recognition(cfg=model_cfg['RecognitionNetwork'],args=self.args, transform_cfg=cfg['data']['transform_cfg'])
+            self.recognition_network = Recognition(cfg=model_cfg['RecognitionNetwork'],args=self.args)
             self.gloss_tokenizer = self.recognition_network.gloss_tokenizer
         elif self.task == 'S2T':
             self.recognition_weight = model_cfg.get('recognition_weight', 1)
             self.translation_weight = model_cfg.get('translation_weight', 1)
-            self.recognition_network = Recognition(cfg=model_cfg['RecognitionNetwork'], args=self.args,
-                                                   transform_cfg=cfg['data']['transform_cfg'])
-            self.translation_network = TranslationNetwork()
-            self.gloss_tokenizer = GlossTokenizer_S2G({'gloss2id_file':'data/gloss2ids_old.pkl'})
+            self.recognition_network = Recognition(cfg=model_cfg['RecognitionNetwork'], args=self.args)
+            self.translation_network = TranslationNetwork(cfg=model_cfg['TranslationNetwork'])
+            self.gloss_tokenizer = self.recognition_network.gloss_tokenizer
             self.text_tokenizer = self.translation_network.text_tokenizer
-            self.vl_mapper = VLMapper(cfg={'multistream_fuse':'empty'},
-                                      in_features = 1024,
-                                      out_features =1024,
+            if model_cfg['VLMapper'].get('type','projection') == 'projection':
+                if 'in_features' in model_cfg['VLMapper']:
+                    in_features = model_cfg['VLMapper'].pop('in_features')
+                else:
+                    in_features = model_cfg['RecognitionNetwork']['visual_head']['hidden_size']
+            else:
+                in_features = len(self.gloss_tokenizer)
+            self.vl_mapper = VLMapper(cfg=model_cfg['VLMapper'],
+                                      in_features=in_features,
+                                      out_features=self.translation_network.input_dim,
                                       gloss_id2str=self.gloss_tokenizer.id2gloss,
                                       gls2embed=getattr(self.translation_network, 'gls2embed', None))
 

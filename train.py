@@ -43,7 +43,7 @@ from phoenix_cleanup import clean_phoenix_2014_trans, clean_phoenix_2014
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Visual-Language-Pretraining (VLP) V2 scripts', add_help=False)
-    parser.add_argument('--batch-size', default=8, type=int)
+    parser.add_argument('--batch-size', default=2, type=int)
     parser.add_argument('--epochs', default=100, type=int)
 
     # distributed training parameters
@@ -55,8 +55,6 @@ def get_args_parser():
     # * Finetuning params
     parser.add_argument('--finetune', default='', help='finetune from checkpoint')
     # * Baise params
-    parser.add_argument('--output_dir', default='out/vlp_v2',
-                        help='path where to save, empty for no saving')
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
     parser.add_argument('--seed', default=0, type=int)
@@ -64,13 +62,13 @@ def get_args_parser():
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                         help='start epoch')
     parser.add_argument('--eval', action='store_true', help='Perform evaluation only')
-    parser.add_argument('--num_workers', default=8, type=int)
+    parser.add_argument('--num_workers', default=0, type=int)
     parser.add_argument('--pin-mem', action='store_true',
                         help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
     parser.add_argument('--no-pin-mem', action='store_false', dest='pin_mem',
                         help='')
     parser.set_defaults(pin_mem=True)
-    parser.add_argument('--config', type=str, default='./configs/phoenix-2014t_s2g.yaml')
+    parser.add_argument('--config', type=str, default='./configs/csl-daily_s2t.yaml')
 
     # * wandb params
     parser.add_argument("--log_all", action="store_true",
@@ -87,11 +85,9 @@ def get_args_parser():
 
 
 def init_ddp(local_rank):
-    # 有了这一句之后，在转换device的时候直接使用 a=a.cuda()即可，否则要用a=a.cuda(local+rank)
     torch.cuda.set_device(local_rank)
     os.environ['RANK'] = str(local_rank)
     dist.init_process_group(backend='nccl', init_method='env://')
-
 
 def main(args, config):
     utils.init_distributed_mode(args)
@@ -150,7 +146,7 @@ def main(args, config):
     print(f'number of params: {n_parameters}M')
     optimizer = build_optimizer(config=config['training']['optimization'], model=model)
     scheduler, scheduler_type = build_scheduler(config=config['training']['optimization'], optimizer=optimizer)
-    output_dir = Path(args.output_dir)
+    output_dir = Path(config['training']['model_dir'])
     if args.resume:
         checkpoint = torch.load(args.resume, map_location='cpu')
         model.load_state_dict(checkpoint['model'], strict=True)
@@ -162,11 +158,13 @@ def main(args, config):
     if args.eval:
         if not args.resume:
             logger.warning('Please specify the trained model: --resume /path/to/best_checkpoint.pth')
-        dev_stats = evaluate(args, config, dev_dataloader, model, tokenizer, epoch=0, beam_size=5,
+        dev_stats = evaluate(args, config, dev_dataloader, model, tokenizer, epoch=0, beam_size=config['training']['validation']['recognition']['beam_size'],
+                              generate_cfg=config['training']['validation']['translation'],
                               do_translation=config['do_translation'], do_recognition=config['do_recognition'])
         print(f"Dev loss of the network on the {len(dev_dataloader)} test videos: {dev_stats['loss']:.3f}")
 
-        test_stats = evaluate(args, config, test_dataloader, model, tokenizer, epoch=0, beam_size=5,
+        test_stats = evaluate(args, config, test_dataloader, model, tokenizer, epoch=0, beam_size=config['testing']['recognition']['beam_size'],
+                              generate_cfg=config['testing']['translation'],
                               do_translation=config['do_translation'], do_recognition=config['do_recognition'])
         print(f"Test loss of the network on the {len(test_dataloader)} test videos: {test_stats['loss']:.3f}")
         return
@@ -187,7 +185,9 @@ def main(args, config):
                     'scheduler': scheduler.state_dict(),
                     'epoch': epoch,
                 }, checkpoint_path)
-        test_stats = evaluate(args, config, dev_dataloader, model, tokenizer, epoch, beam_size=1,
+        test_stats = evaluate(args, config, dev_dataloader, model, tokenizer, epoch,
+                              beam_size=config['training']['validation']['recognition']['beam_size'],
+                              generate_cfg=config['training']['validation']['translation'],
                               do_translation=config['do_translation'], do_recognition=config['do_recognition'])
         if config['task'] == "S2T":
             if bleu_4 < test_stats["bleu4"]:
@@ -235,10 +235,12 @@ def main(args, config):
     if test_on_last_epoch and args.output_dir:
         checkpoint = torch.load(args.output_dir + '/best_checkpoint.pth', map_location='cpu')
         model.load_state_dict(checkpoint['model'], strict=True)
-        dev_stats = evaluate(args, config, dev_dataloader, model, tokenizer, epoch=0, beam_size=5,
+        dev_stats = evaluate(args, config, dev_dataloader, model, tokenizer, epoch=0, beam_size=config['testing']['recognition']['beam_size'],
+                             generate_cfg=config['testing']['translation'],
                              do_translation=config['do_translation'], do_recognition=config['do_recognition'])
         print(f"Dev loss of the network on the {len(dev_dataloader)} test videos: {dev_stats['loss']:.3f}")
-        test_stats = evaluate(args, config, test_dataloader, model, tokenizer, epoch=0, beam_size=5,
+        test_stats = evaluate(args, config, test_dataloader, model, tokenizer, epoch=0, beam_size=config['testing']['recognition']['beam_size'],
+                              generate_cfg=config['testing']['translation'],
                               do_translation=config['do_translation'], do_recognition=config['do_recognition'])
         print(f"Test loss of the network on the {len(test_dataloader)} test videos: {test_stats['loss']:.3f}")
         if config['do_recognition']:
@@ -282,7 +284,7 @@ def train_one_epoch(args, model: torch.nn.Module, criterion,
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
-def evaluate(args, config, dev_dataloader, model, tokenizer, epoch, beam_size=1, do_translation=True,
+def evaluate(args, config, dev_dataloader, model, tokenizer, epoch, beam_size=1, generate_cfg={}, do_translation=True,
              do_recognition=True):
     model.eval()
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -311,8 +313,7 @@ def evaluate(args, config, dev_dataloader, model, tokenizer, epoch, beam_size=1,
             if do_translation:
                 generate_output = model.generate_txt(
                     transformer_inputs=output['transformer_inputs'],
-                    generate_cfg={'length_penalty': 1, 'max_length': 100, 'num_beams': 5})
-                # decoded_sequences
+                    generate_cfg=generate_cfg)
                 for name, txt_hyp, txt_ref in zip(src_input['name'], generate_output['decoded_sequences'],
                                                   src_input['text']):
                     results[name]['txt_hyp'], results[name]['txt_ref'] = txt_hyp, txt_ref
@@ -341,8 +342,8 @@ def evaluate(args, config, dev_dataloader, model, tokenizer, epoch, beam_size=1,
         if do_translation:
             txt_ref = [results[n]['txt_ref'] for n in results]
             txt_hyp = [results[n]['txt_hyp'] for n in results]
-            bleu_dict = bleu(references=txt_ref, hypotheses=txt_hyp, level='word')
-            rouge_score = rouge(references=txt_ref, hypotheses=txt_hyp, level='word')
+            bleu_dict = bleu(references=txt_ref, hypotheses=txt_hyp, level=config['data']['level'])
+            rouge_score = rouge(references=txt_ref, hypotheses=txt_hyp, level=config['data']['level'])
             for k, v in bleu_dict.items():
                 print('{} {:.2f}'.format(k, v))
             print('ROUGE: {:.2f}'.format(rouge_score))
@@ -387,7 +388,6 @@ def setup_run(args, config):
             run.define_metric("epoch")
             run.define_metric("training/*", step_metric="epoch")
             run.define_metric("dev/*", step_metric="epoch")
-            run.name = args.output_dir.split('/')[-1]
         else:
             os.environ["WANDB_MODE"] = 'disabled'
             run = False
@@ -402,6 +402,5 @@ if __name__ == '__main__':
         config = yaml.load(f, Loader=yaml.FullLoader)
     # wandb.init a run if logging, otherwise return None
     args.run = setup_run(args, config)
-    if args.output_dir:
-        Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+    Path(config['training']['model_dir']).mkdir(parents=True, exist_ok=True)
     main(args, config)

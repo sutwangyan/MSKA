@@ -3,39 +3,41 @@ device: cuda
 do_translation: True
 do_recognition: True
 data:
-  train_label_path: data/Phoenix-2014T/Phoenix-2014T.train
-  dev_label_path: data/Phoenix-2014T/Phoenix-2014T.dev
-  test_label_path: data/Phoenix-2014T/Phoenix-2014T.test
-  max_length: 300
+  dataset_name: Csl-daily
+  train_label_path: data/CSL-Daily/CSL-Daily.train
+  dev_label_path: data/CSL-Daily/CSL-Daily.dev
+  test_label_path: data/CSL-Daily/CSL-Daily.test
+  max_length: 400
   input_streams: keypoint
-  level: word  #word or char
+  level: char  #word or char
   txt_lowercase: true
   max_sent_length: 400
-  dataset_name: Phoenix-2014T
-
-testing:
-  recognition:
-    beam_size: 5
-  translation:
-    length_penalty: 1
-    max_length: 100
-    num_beams: 5
 gloss:
-  gloss2id_file: data/Phoenix-2014T/gloss2ids.pkl
+  gloss2id_file: data/CSL-Daily/gloss2ids.pkl
+testing:
+  cfg:
+    recognition:
+      beam_size: 5
+    translation:
+      length_penalty: 1
+      max_length: 500
+      num_beams: 5
 training:
   wandb: disabled # online or disabled
-  model_dir: /outputs/phoenix-2014T_SLT
+  model_dir: outputs/CSL-Daily_SLT
   validation:
     recognition:
       beam_size: 1
     translation:
       length_penalty: 1
-      max_length: 100
-      num_beams: 5
+      max_length: 60
+      num_beams: 4
   optimization:
     optimizer: Adam
     learning_rate:
-      default: 1.0e-3
+      default: 1.0e-04
+      mapper: 1.0e-04
+      translation: 1.0e-05
     weight_decay: 0.001
     betas:
       - 0.9
@@ -44,7 +46,8 @@ training:
     t_max: 40
 model:
   RecognitionNetwork:
-    pretrained_path: pretrained_models/Phoenix-2014T_SLR/best.pth
+    gloss_feature_ensemble: gloss_probabilities
+    pretrained_path: pretrained_models/CSL-Daily_SLR/best.pth
     input_type: keypoint
     DSTA-Net:
       net: [[64, 64, 16, 7, 2], [64, 64, 16, 3, 1],
@@ -59,7 +62,7 @@ model:
       face: [23,26,29,33,36,39,41,43,46,48,53,56,59,62,65,68,71,72,73,74,75,76,77,79,80,81]
       mouth: [71,72,73,74,75,76,77,79,80,81]
     GlossTokenizer:
-      gloss2id_file: data/Phoenix-2014T/gloss2ids.pkl
+      gloss2id_file: data/CSL-Daily/gloss2ids.pkl
     body_visual_head:
       input_size: 256
       hidden_size: 512
@@ -95,19 +98,19 @@ model:
   TranslationNetwork:
     GlossEmbedding:
       freeze: false
-      gloss2embed_file: pretrained_models/mBart_de/gloss_embeddings.bin
+      gloss2embed_file: pretrained_models/mBart_zh/gloss_embeddings.bin
     GlossTokenizer:
-      gloss2id_file: pretrained_models/mBart_de/gloss2ids.pkl
-      src_lang: de_DGS
+      gloss2id_file: pretrained_models/mBart_zh/gloss2ids.pkl
+      src_lang: zh_CSL
     TextTokenizer:
-      pretrained_model_name_or_path: pretrained_models/mBart_de
-      pruneids_file: pretrained_models/mBart_de/map_ids.pkl
-      tgt_lang: de_DE
-    load_ckpt: pretrained_models/phoenix-2014T_g2t/best.ckpt
-    pretrained_model_name_or_path: pretrained_models/mBart_de
+      pretrained_model_name_or_path: pretrained_models/mBart_zh
+      pruneids_file: pretrained_models/mBart_zh/old2new_vocab.pkl
+      tgt_lang: zh_CN
+    load_ckpt: pretrained_models/CSL-Daily_g2t/step_1000.ckpt
+    pretrained_model_name_or_path: pretrained_models/mBart_zh
     overwrite_cfg:
       attention_dropout: 0.1
       dropout: 0.3
+    label_smoothing: 0.2
   VLMapper:
-    in_features: 512
-    multistream_fuse: empty
+    type: embedding

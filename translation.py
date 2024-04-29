@@ -8,37 +8,23 @@ import pickle, math
 class TranslationNetwork(torch.nn.Module):
     def __init__(self, input_type='feature', cfg=None, task='S2T') -> None:
         super().__init__()
-        self.task = task  # 'S2T'
-        self.input_type = input_type  # 'feature'
-        assert self.input_type in ['gloss', 'feature']
-        self.text_tokenizer = TextTokenizer({'pretrained_model_name_or_path': 'pretrained_models/mBart_de',
-                                             'pruneids_file': 'pretrained_models/mBart_de/map_ids.pkl',
-                                             'tgt_lang': 'de_DE'})  # pretrained_model_name_or_path: pretrained_models/mBart_de
-        # pruneids_file: pretrained_models/mBart_de/map_ids.pkl
-        # tgt_lang de_DE
-
-        # if 'pretrained_model_name_or_path' in cfg:   # True
+        self.task = task
+        self.input_type = input_type
+        self.text_tokenizer = TextTokenizer(tokenizer_cfg=cfg['TextTokenizer'])
         self.model = MBartForConditionalGeneration.from_pretrained(
-            'pretrained_models/mBart_de',  # pretrained_models/mBart_de
-            **{'attention_dropout': 0.1, 'dropout': 0.3}  # TODO check   # attention_dropout 0.1  dropout 0.3
+            cfg['pretrained_model_name_or_path'],
+                **cfg.get('overwrite_cfg', {})
         )
-
         self.translation_loss_fun = XentLoss(
             pad_index=self.text_tokenizer.pad_index,
-            smoothing=0.2)   # smoothing 0.2
+            smoothing=0.2)
         self.input_dim = self.model.config.d_model
         self.input_embed_scale = math.sqrt(self.model.config.d_model)
-
-        # if self.task in ['S2T', 'G2T'] and 'pretrained_model_name_or_path' in cfg:
-            # in both S2T or G2T, we need gloss_tokenizer and gloss_embedding
-        # TODO data/phoenix-2014t/gloss2ids_old.pkl
-        self.gloss_tokenizer = GlossTokenizer_G2T({'gloss2id_file':'pretrained_models/mBart_de/gloss2ids.pkl', 'src_lang':'de_DGS'})  # {gloss2id_file:pretrained_models/mBart_de/gloss2ids.pkl, src_lang:de_DGS}
-        self.gloss_embedding = self.build_gloss_embedding(**{'freeze':False,'gloss2embed_file':'E:/KP-VLP/pretrained_models/mBart_de/gloss_embeddings.bin'})  # {freeze:false,gloss2embed_file:pretrained_models/mBart_de/gloss_embedding.bin}
-        # debug
-        self.gls_eos = 'gls'  # gls or txt
-        # if 'load_ckpt' in cfg:
-        # TODO experiments/outputs/SingleStream/phoenix-2014t_g2t/ckpts/best.ckpt  same
-        self.load_from_pretrained_ckpt('pretrained_models/phoenix-2014t_g2t/ckpts/best.ckpt')   # 'experiments/outputs/SingleStream/phoenix-2014t_g2t/ckpts/best.ckpt'
+        self.gloss_tokenizer = GlossTokenizer_G2T(tokenizer_cfg=cfg['GlossTokenizer'])
+        self.gloss_embedding = self.build_gloss_embedding(**cfg['GlossEmbedding'])
+        self.gls_eos = cfg.get('gls_eos', 'gls')
+        if 'load_ckpt' in cfg:
+            self.load_from_pretrained_ckpt(cfg['load_ckpt'])
 
     def load_from_pretrained_ckpt(self, pretrained_ckpt):
 
@@ -48,7 +34,6 @@ class TranslationNetwork(torch.nn.Module):
             if 'translation_network' in k:
                 load_dict[k.replace('translation_network.', '')] = v
         self.load_state_dict(load_dict)
-        # logger.info('Load Translation network from pretrained ckpt {}'.format(pretrained_ckpt))
 
     def build_gloss_embedding(self, gloss2embed_file, from_scratch=False, freeze=False):
         gloss_embedding = torch.nn.Embedding(
@@ -56,7 +41,6 @@ class TranslationNetwork(torch.nn.Module):
             embedding_dim=self.model.config.d_model,
             padding_idx=self.gloss_tokenizer.gloss2id['<pad>'])
         if from_scratch:
-            # self.logger.info('Train Gloss Embedding from scratch')
             assert freeze == False
         else:
             gls2embed = torch.load(gloss2embed_file)
@@ -66,9 +50,6 @@ class TranslationNetwork(torch.nn.Module):
                     if gls in gls2embed:
                         assert gls in gls2embed, gls
                         gloss_embedding.weight[id_, :] = gls2embed[gls]
-                    # else:
-                    #     self.logger.info('{} not in gls2embed train from scratch'.format(gls))
-
         return gloss_embedding
 
     def prepare_gloss_inputs(self, input_ids):
@@ -133,19 +114,17 @@ class TranslationNetwork(torch.nn.Module):
     def forward(self, **kwargs):
         input_feature = kwargs.pop('input_feature')
         input_lengths = kwargs.pop('input_lengths')
-        # quick fix
         kwargs.pop('gloss_ids', None)
         kwargs.pop('gloss_lengths', None)
         new_kwargs = self.prepare_feature_inputs(input_feature, input_lengths)
         kwargs = {**kwargs, **new_kwargs}
         kwargs = {key: value.to('cuda') for key, value in kwargs.items()}
         output_dict = self.model(**kwargs, return_dict=True)
-        # print(output_dict.keys()) loss, logits, past_key_values, encoder_last_hidden_state
         log_prob = torch.nn.functional.log_softmax(output_dict['logits'], dim=-1)  # B, T, L
         batch_loss_sum = self.translation_loss_fun(log_probs=log_prob, targets=kwargs['labels'])
         output_dict['translation_loss'] = batch_loss_sum / log_prob.shape[0]
 
-        output_dict['transformer_inputs'] = kwargs  # for later use (decoding)
+        output_dict['transformer_inputs'] = kwargs
         return output_dict
 
     def generate(self,
