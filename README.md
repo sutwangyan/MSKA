@@ -22,13 +22,13 @@ We propose a multi-stream keypoint attention network to depict a sequence of key
 | :---: | :---: | :---: | :---: | 
 | Phoenix-2014 | 22.1 | [ckpt](https://drive.google.com/drive/folders/1QZ50fT2nqGowG94K6tKDxmKLHjyqiJUl?usp=drive_link) | [config](configs/phoenix-2014_s2g.yaml) |
 | Phoenix-2014T | 20.5 | [ckpt](https://drive.google.com/drive/folders/1kwn5_aEIswfVwf41I4EUOrUhdnHbYl80?usp=drive_link) | [config](configs/phoenix-2014t_s2g.yaml) |
-| CSL-Daily | 27.7 | [ckpt] | [config](configs/csl-daily_s2g.yaml) |
+| CSL-Daily | 27.8 | [ckpt] | [config](configs/csl-daily_s2g.yaml) |
  
 **MSKA-SLT**
 | Dataset | R | B1 | B2 | B3 | B4 | Model | Training |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | Phoenix-2014T | 53.54 | 54.79 | 42.42 | 34.49 | 29.03 | [ckpt](https://drive.google.com/drive/folders/1kQhvT-gJBfarkV2jtigBnO24Ial95znc?usp=drive_link) | [config](configs/phoenix-2014t_s2t.yaml) |
-| CSL-Daily | 55.72 | 55.44 | 42.59 | 32.87 | 25.79 | [ckpt]| [config](configs/csl-daily_s2t.yaml) |
+| CSL-Daily | 54.04 | 56.37 | 42.80 | 32.78 | 25.52 | [ckpt]| [config](configs/csl-daily_s2t.yaml) |
 
 ## Installation
 ```
