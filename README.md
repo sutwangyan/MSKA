@@ -1,6 +1,6 @@
 # MSKA
 
-# Multi-Stream Keypoint Attention Network for Sign Language Recognition and Translation #
+# [Multi-Stream Keypoint Attention Network for Sign Language Recognition and Translation](https://arxiv.org/pdf/2405.05672)
 
 <a href="https://pytorch.org/get-started/locally/"><img alt="PyTorch" src="https://img.shields.io/badge/PyTorch-ee4c2c?logo=pytorch&logoColor=white"></a>  [![report](https://img.shields.io/badge/ArXiv-Paper-red)](https://arxiv.org/pdf/2405.05672)
 
