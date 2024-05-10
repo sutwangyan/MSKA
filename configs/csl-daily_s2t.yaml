@@ -15,13 +15,12 @@ data:
 gloss:
   gloss2id_file: data/CSL-Daily/gloss2ids.pkl
 testing:
-  cfg:
-    recognition:
-      beam_size: 5
-    translation:
-      length_penalty: 1
-      max_length: 500
-      num_beams: 5
+  recognition:
+    beam_size: 1
+  translation:
+    length_penalty: 1
+    max_length: 500
+    num_beams: 5
 training:
   wandb: disabled # online or disabled
   model_dir: outputs/CSL-Daily_SLT
@@ -35,7 +34,7 @@ training:
   optimization:
     optimizer: Adam
     learning_rate:
-      default: 1.0e-04
+      default: 1.0e-05
       mapper: 1.0e-04
       translation: 1.0e-05
     weight_decay: 0.001
@@ -47,7 +46,7 @@ training:
 model:
   RecognitionNetwork:
     gloss_feature_ensemble: gloss_probabilities
-    pretrained_path: pretrained_models/CSL-Daily_SLR/best.pth
+    pretrained_path: outputs/CSL-Daily_SLR/best.pth
     input_type: keypoint
     DSTA-Net:
       net: [[64, 64, 16, 7, 2], [64, 64, 16, 3, 1],

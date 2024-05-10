@@ -15,18 +15,16 @@ data:
 gloss:
   gloss2id_file: data/CSL-Daily/gloss2ids.pkl
 testing:
-  cfg:
-    recognition:
-      beam_size: 5
+  recognition:
+    beam_size: 5
+  translation: {}
 training:
   wandb: disabled # online or disabled
   model_dir: outputs/CSL-Daily_SLR
   validation:
-    unit: epoch
-    freq: 1
-    cfg:
-      recognition:
-        beam_size: 1
+    recognition:
+      beam_size: 1
+    translation: {}
   optimization:
     optimizer: Adam
     learning_rate:

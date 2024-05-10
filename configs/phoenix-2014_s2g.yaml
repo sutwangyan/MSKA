@@ -19,10 +19,12 @@ gloss:
 testing:
   recognition:
     beam_size: 5
+  translation: {}
 training:
   validation:
     recognition:
       beam_size: 1
+    translation: {}
   optimization:
     optimizer: Adam
     learning_rate:

@@ -1,8 +1,14 @@
 # MSKA
 
-[Multi-Stream Keypoint Attention Network for Sign Language
-Recognition and Translation ]()
+# Multi-Stream Keypoint Attention Network for Sign Language Recognition and Translation #
 
+<a href="https://pytorch.org/get-started/locally/"><img alt="PyTorch" src="https://img.shields.io/badge/PyTorch-ee4c2c?logo=pytorch&logoColor=white"></a>  [![report](https://img.shields.io/badge/ArXiv-Paper-red)](https://arxiv.org/pdf/2405.05672)
+
+[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/multi-stream-keypoint-attention-network-for/sign-language-translation-on-rwth-phoenix)](https://paperswithcode.com/sota/sign-language-translation-on-rwth-phoenix?p=multi-stream-keypoint-attention-network-for)
+[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/multi-stream-keypoint-attention-network-for/sign-language-translation-on-csl-daily)](https://paperswithcode.com/sota/sign-language-translation-on-csl-daily?p=multi-stream-keypoint-attention-network-for)
+[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/multi-stream-keypoint-attention-network-for/sign-language-recognition-on-csl-daily)](https://paperswithcode.com/sota/sign-language-recognition-on-csl-daily?p=multi-stream-keypoint-attention-network-for)
+[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/multi-stream-keypoint-attention-network-for/sign-language-recognition-on-rwth-phoenix-1)](https://paperswithcode.com/sota/sign-language-recognition-on-rwth-phoenix-1?p=multi-stream-keypoint-attention-network-for)
+[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/multi-stream-keypoint-attention-network-for/sign-language-recognition-on-rwth-phoenix)](https://paperswithcode.com/sota/sign-language-recognition-on-rwth-phoenix?p=multi-stream-keypoint-attention-network-for)
 
 ## Introduction
 We propose a multi-stream keypoint attention network to depict a sequence of keypoints produced by a readily available keypoint estimator. In order to facilitate interaction across multiple streams, we investigate diverse methodologies such as keypoint fusion strategies, head fusion, and self-distillation. The resulting framework is denoted as MSKA-SLR, which is expanded into a sign language translation (SLT) model through the straightforward addition of an extra translation network.We carry out comprehensive experiments on well-known benchmarks like Phoenix-2014, Phoenix-2014T, and CSL-Daily to showcase the efficacy of our methodology. Notably, we have attained a novel state-of-the-art performance in the sign language translation task of Phoenix-2014T.
@@ -16,13 +22,13 @@ We propose a multi-stream keypoint attention network to depict a sequence of key
 | :---: | :---: | :---: | :---: | 
 | Phoenix-2014 | 22.1 | [ckpt](https://drive.google.com/drive/folders/1QZ50fT2nqGowG94K6tKDxmKLHjyqiJUl?usp=drive_link) | [config](configs/phoenix-2014_s2g.yaml) |
 | Phoenix-2014T | 20.5 | [ckpt](https://drive.google.com/drive/folders/1kwn5_aEIswfVwf41I4EUOrUhdnHbYl80?usp=drive_link) | [config](configs/phoenix-2014t_s2g.yaml) |
-| CSL-Daily | 27.7 | [ckpt](https://drive.google.com/drive/folders/1dMzOx76m7iZdY0CN0fZJZInbvRjG1R6h?usp=drive_link) | [config](configs/csl-daily_s2g.yaml) |
+| CSL-Daily | 27.7 | [ckpt] | [config](configs/csl-daily_s2g.yaml) |
  
 **MSKA-SLT**
 | Dataset | R | B1 | B2 | B3 | B4 | Model | Training |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | Phoenix-2014T | 53.54 | 54.79 | 42.42 | 34.49 | 29.03 | [ckpt](https://drive.google.com/drive/folders/1kQhvT-gJBfarkV2jtigBnO24Ial95znc?usp=drive_link) | [config](configs/phoenix-2014t_s2t.yaml) |
-| CSL-Daily | 55.72 | 55.44 | 42.59 | 32.87 | 25.79 | [ckpt](https://drive.google.com/drive/folders/18fHfuRAYk0NjuaHKdQYbBtMwbULyMREU?usp=drive_link)| [config](configs/csl-daily_s2t.yaml) |
+| CSL-Daily | 55.72 | 55.44 | 42.59 | 32.87 | 25.79 | [ckpt]| [config](configs/csl-daily_s2t.yaml) |
 
 ## Installation
 ```
@@ -52,7 +58,7 @@ We provide human keypoints for three datasets, [Phoenix-2014](https://drive.goog
 
 ## MSKA-SLR Training
 ```
-python train.py --config configs/${dataset}_s2g.yaml
+python train.py --config configs/${dataset}_s2g.yaml --epoch 100
 ```
 
 ## MSKA-SLR Evaluation
@@ -62,7 +68,7 @@ python train.py --config configs/${dataset}_s2g.yaml --resume pretrained_models/
 
 ## MSKA-SLT Training
 ```
-python train.py --config configs/${dataset}_s2t.yaml
+python train.py --config configs/${dataset}_s2t.yaml --epoch 40
 ```
 
 ## MSKA-SLT Evaluation
@@ -72,6 +78,13 @@ python train.py --config configs/${dataset}_s2t.yaml --resume pretrained_models/
 
 ## Citations
 ```
-
+@misc{guan2024multistream,
+      title={Multi-Stream Keypoint Attention Network for Sign Language Recognition and Translation}, 
+      author={Mo Guan and Yan Wang and Guangkun Ma and Jiarui Liu and Mingzu Sun},
+      year={2024},
+      eprint={2405.05672},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV}
+}
 ```
 

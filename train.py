@@ -30,7 +30,7 @@ from phoenix_cleanup import clean_phoenix_2014_trans, clean_phoenix_2014
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Visual-Language-Pretraining (VLP) V2 scripts', add_help=False)
-    parser.add_argument('--batch-size', default=2, type=int)
+    parser.add_argument('--batch-size', default=8, type=int)
     parser.add_argument('--epochs', default=100, type=int)
 
     # distributed training parameters
@@ -49,13 +49,13 @@ def get_args_parser():
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                         help='start epoch')
     parser.add_argument('--eval', action='store_true', help='Perform evaluation only')
-    parser.add_argument('--num_workers', default=0, type=int)
+    parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument('--pin-mem', action='store_true',
                         help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
     parser.add_argument('--no-pin-mem', action='store_false', dest='pin_mem',
                         help='')
     parser.set_defaults(pin_mem=True)
-    parser.add_argument('--config', type=str, default='configs/csl-daily_s2t.yaml')
+    parser.add_argument('--config', type=str, default='configs/csl-daily_s2g.yaml')
 
     # * wandb params
     parser.add_argument("--log_all", action="store_true",
@@ -145,12 +145,12 @@ def main(args, config):
     if args.eval:
         if not args.resume:
             logger.warning('Please specify the trained model: --resume /path/to/best_checkpoint.pth')
-        dev_stats = evaluate(args, config, dev_dataloader, model, tokenizer, epoch=0, beam_size=config['training']['validation']['recognition']['beam_size'],
+        dev_stats = evaluate(args, config, dev_dataloader, model, tokenizer, epoch=0, beam_size=5,
                               generate_cfg=config['training']['validation']['translation'],
                               do_translation=config['do_translation'], do_recognition=config['do_recognition'])
         print(f"Dev loss of the network on the {len(dev_dataloader)} test videos: {dev_stats['loss']:.3f}")
 
-        test_stats = evaluate(args, config, test_dataloader, model, tokenizer, epoch=0, beam_size=config['testing']['recognition']['beam_size'],
+        test_stats = evaluate(args, config, test_dataloader, model, tokenizer, epoch=0, beam_size=5,
                               generate_cfg=config['testing']['translation'],
                               do_translation=config['do_translation'], do_recognition=config['do_recognition'])
         print(f"Test loss of the network on the {len(test_dataloader)} test videos: {test_stats['loss']:.3f}")
@@ -163,15 +163,14 @@ def main(args, config):
     for epoch in range(args.start_epoch, args.epochs):
         scheduler.step()
         train_stats = train_one_epoch(args, model, tokenizer, train_dataloader, optimizer, device, epoch)
-        if args.output_dir:
-            checkpoint_paths = [output_dir / f'checkpoint.pth']
-            for checkpoint_path in checkpoint_paths:
-                utils.save_on_master({
-                    'model': model.state_dict(),
-                    'optimizer': optimizer.state_dict(),
-                    'scheduler': scheduler.state_dict(),
-                    'epoch': epoch,
-                }, checkpoint_path)
+        checkpoint_paths = [output_dir / f'checkpoint.pth']
+        for checkpoint_path in checkpoint_paths:
+            utils.save_on_master({
+                'model': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'scheduler': scheduler.state_dict(),
+                'epoch': epoch,
+            }, checkpoint_path)
         test_stats = evaluate(args, config, dev_dataloader, model, tokenizer, epoch,
                               beam_size=config['training']['validation']['recognition']['beam_size'],
                               generate_cfg=config['training']['validation']['translation'],
@@ -179,29 +178,27 @@ def main(args, config):
         if config['task'] == "S2T":
             if bleu_4 < test_stats["bleu4"]:
                 bleu_4 = test_stats["bleu4"]
-                if args.output_dir:
-                    checkpoint_paths = [output_dir / 'best_checkpoint.pth']
-                    for checkpoint_path in checkpoint_paths:
-                        utils.save_on_master({
-                            'model': model.state_dict(),
-                            'optimizer': optimizer.state_dict(),
-                            'scheduler': scheduler.state_dict(),
-                            'epoch': epoch,
-                        }, checkpoint_path)
+                checkpoint_paths = [output_dir / 'best_checkpoint.pth']
+                for checkpoint_path in checkpoint_paths:
+                    utils.save_on_master({
+                        'model': model.state_dict(),
+                        'optimizer': optimizer.state_dict(),
+                        'scheduler': scheduler.state_dict(),
+                        'epoch': epoch,
+                    }, checkpoint_path)
 
             print(f"* DEV BLEU-4 {test_stats['bleu4']:.3f} Max DEV BLEU-4 {bleu_4}")
         else:
             if min_loss > test_stats["wer"]:
                 min_loss = test_stats["wer"]
-                if args.output_dir:
-                    checkpoint_paths = [output_dir / 'best_checkpoint.pth']
-                    for checkpoint_path in checkpoint_paths:
-                        utils.save_on_master({
-                            'model': model.state_dict(),
-                            'optimizer': optimizer.state_dict(),
-                            'scheduler': scheduler.state_dict(),
-                            'epoch': epoch,
-                        }, checkpoint_path)
+                checkpoint_paths = [output_dir / 'best_checkpoint.pth']
+                for checkpoint_path in checkpoint_paths:
+                    utils.save_on_master({
+                        'model': model.state_dict(),
+                        'optimizer': optimizer.state_dict(),
+                        'scheduler': scheduler.state_dict(),
+                        'epoch': epoch,
+                    }, checkpoint_path)
             print(f"* DEV wer {test_stats['wer']:.3f} Min DEV WER {min_loss}")
         if args.run:
             args.run.log(
@@ -213,17 +210,16 @@ def main(args, config):
                      'epoch': epoch,
                      'n_parameters': n_parameters}
 
-        if args.output_dir and utils.is_main_process():
-            with (output_dir / "log.txt").open("a") as f:
-                f.write(json.dumps(log_stats) + "\n")
+        with (output_dir / "log.txt").open("a") as f:
+            f.write(json.dumps(log_stats) + "\n")
 
         # Last epoch
     test_on_last_epoch = True
-    if test_on_last_epoch and args.output_dir:
-        checkpoint = torch.load(args.output_dir + '/best_checkpoint.pth', map_location='cpu')
+    if test_on_last_epoch:
+        checkpoint = torch.load(str(output_dir) + '/best_checkpoint.pth', map_location='cpu')
         model.load_state_dict(checkpoint['model'], strict=True)
         dev_stats = evaluate(args, config, dev_dataloader, model, tokenizer, epoch=0, beam_size=config['testing']['recognition']['beam_size'],
-                             generate_cfg=config['testing']['translation'],
+                             generate_cfg=config['training']['validation']['translation'],
                              do_translation=config['do_translation'], do_recognition=config['do_recognition'])
         print(f"Dev loss of the network on the {len(dev_dataloader)} test videos: {dev_stats['loss']:.3f}")
         test_stats = evaluate(args, config, test_dataloader, model, tokenizer, epoch=0, beam_size=config['testing']['recognition']['beam_size'],

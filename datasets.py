@@ -25,6 +25,10 @@ class S2T_Dataset(Dataset.Dataset):
         self.raw_data = utils.load_dataset_file(path)
         self.tokenizer = tokenizer
         self.phase = phase
+        if config['data']['dataset_name'].lower() == 'csl-daily':
+            self.w, self.h = 512, 512
+        else:
+            self.w, self.h = 210, 260
         self.max_length = config['data']['max_length']
         self.list = [key for key, value in self.raw_data.items()]
         if self.config['task'] == 'S2T':
@@ -89,16 +93,16 @@ class S2T_Dataset(Dataset.Dataset):
     def augment_preprocess_inputs(self, is_train, keypoints=None):
         if is_train == 'train':
             # TODO keypoint augment
-            keypoints[:, 0, :, :] /= 210
-            keypoints[:, 1, :, :] = 260 - keypoints[:, 1, :, :]
-            keypoints[:, 1, :, :] /= 260
+            keypoints[:, 0, :, :] /= self.w
+            keypoints[:, 1, :, :] = self.h - keypoints[:, 1, :, :]
+            keypoints[:, 1, :, :] /= self.h
             keypoints[:, :2, :, :] = (keypoints[:, :2, :, :] - 0.5) / 0.5
             keypoints[:, :2, :, :] = self.random_move(
                 keypoints[:, :2, :, :].permute(0, 2, 3, 1).numpy()).permute(0, 3, 1, 2)
         else:
-            keypoints[:, 0, :, :] /= 210
-            keypoints[:, 1, :, :] = 260 - keypoints[:, 1, :, :]
-            keypoints[:, 1, :, :] /= 260
+            keypoints[:, 0, :, :] /= self.w
+            keypoints[:, 1, :, :] = self.h - keypoints[:, 1, :, :]
+            keypoints[:, 1, :, :] /= self.h
             keypoints[:, :2, :, :] = (keypoints[:, :2, :, :] - 0.5) / 0.5
         return keypoints
 
