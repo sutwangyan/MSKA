@@ -36,6 +36,8 @@ training:
     optimizer: Adam
     learning_rate:
       default: 1.0e-3
+      mapper: 1.0e-3
+      translation: 1.0e-05
     weight_decay: 0.001
     betas:
       - 0.9
