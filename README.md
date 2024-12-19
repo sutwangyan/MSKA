@@ -20,9 +20,9 @@ We propose a multi-stream keypoint attention network to depict a sequence of key
 **MSKA-SLR**
 | Dataset | WER | Model | Training |
 | :---: | :---: | :---: | :---: | 
-| Phoenix-2014 | 22.1 | [ckpt](https://drive.google.com/drive/folders/1QZ50fT2nqGowG94K6tKDxmKLHjyqiJUl?usp=drive_link) | [config](configs/phoenix-2014_s2g.yaml) |
-| Phoenix-2014T | 20.5 | [ckpt](https://drive.google.com/drive/folders/1kwn5_aEIswfVwf41I4EUOrUhdnHbYl80?usp=drive_link) | [config](configs/phoenix-2014t_s2g.yaml) |
-| CSL-Daily | 27.8 | [ckpt](https://drive.google.com/file/d/1o9pmv1P6uR03Ev5kOd7LoiPpLOVrYL8C/view?usp=sharing) | [config](configs/csl-daily_s2g.yaml) |
+| Phoenix-2014 | 21.2 | [ckpt](https://pan.baidu.com/s/1AwkPSVrEXXlzcd2O1M9xxg?pwd=c5fx) | [config](configs/phoenix-2014_s2g.yaml) |
+| Phoenix-2014T | 19.8 | [ckpt](https://drive.google.com/file/d/1-L1iOhx8eTtg5TwsH7Xi2ia9HB6LguZM/view?usp=sharing) | [config](configs/phoenix-2014t_s2g.yaml) |
+| CSL-Daily | 27.1 | [ckpt](https://drive.google.com/file/d/14R9T5e84po579m1-Th13ifHofg_iLe8E/view?usp=sharing) | [config](configs/csl-daily_s2g.yaml) |
  
 **MSKA-SLT**
 | Dataset | R | B1 | B2 | B3 | B4 | Model | Training |
