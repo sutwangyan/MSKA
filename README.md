@@ -78,13 +78,16 @@ python train.py --config configs/${dataset}_s2t.yaml --resume pretrained_models/
 
 ## Citations
 ```
-@misc{guan2024multistream,
-      title={Multi-Stream Keypoint Attention Network for Sign Language Recognition and Translation}, 
-      author={Mo Guan and Yan Wang and Guangkun Ma and Jiarui Liu and Mingzu Sun},
-      year={2024},
-      eprint={2405.05672},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV}
+@misc{GUAN2025111602,
+title = {MSKA: Multi-stream keypoint attention network for sign language recognition and translation},
+journal = {Pattern Recognition},
+volume = {165},
+pages = {111602},
+year = {2025},
+issn = {0031-3203},
+doi = {https://doi.org/10.1016/j.patcog.2025.111602},
+url = {https://www.sciencedirect.com/science/article/pii/S0031320325002626},
+author = {Mo Guan and Yan Wang and Guangkun Ma and Jiarui Liu and Mingzu Sun},
 }
 ```
 
